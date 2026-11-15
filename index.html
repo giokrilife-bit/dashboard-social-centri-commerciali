@@ -250,6 +250,37 @@
     <div id="classifica"></div>
   </section>
 
+
+<section class="panel chart-panel">
+  <h2 class="section-title">Confronto tra centri commerciali</h2>
+
+  <p class="status">
+    Confronto delle registrazioni e dei fan distinti nello stesso periodo selezionato.
+  </p>
+
+  <div class="chart-wrap">
+    <canvas id="graficoConfronto"></canvas>
+  </div>
+
+  <div class="table-wrap" style="margin-top:20px">
+    <table>
+      <thead>
+        <tr>
+          <th>Centro commerciale</th>
+          <th>Registrazioni</th>
+          <th>Fan distinti</th>
+        </tr>
+      </thead>
+      <tbody id="tabellaConfronto">
+        <tr>
+          <td colspan="3">Caricamento...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+  
   <div class="notice">
     <strong>Nota metodologica</strong><br>
     Le registrazioni rappresentano interazioni social presenti nei dati raccolti.
@@ -274,6 +305,8 @@
   );
 
   let grafico = null;
+
+  let graficoConfronto = null;
 
   const colori = [
     "#245486",
@@ -325,6 +358,7 @@
       mostraRiepilogo(data);
       mostraAndamento(data.andamento_mensile || []);
       mostraClassifica(data.classifica_insegne || []);
+      await mostraConfronto(dataInizio, dataFine);
 
       const riepilogo = data.riepilogo || {};
       const inizio = riepilogo.prima_data || "—";
@@ -344,6 +378,79 @@
     }
   }
 
+  
+async function mostraConfronto(dataInizio, dataFine) {
+  const { data, error } = await supabaseClient.rpc(
+    "get_social_comparison",
+    {
+      p_data_inizio: dataInizio || null,
+      p_data_fine: dataFine || null
+    }
+  );
+
+  if (error) throw error;
+
+  const righe = data || [];
+  const tbody = document.getElementById("tabellaConfronto");
+  tbody.innerHTML = "";
+
+  if (!righe.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="3">Nessun dato disponibile.</td></tr>';
+  } else {
+    righe.forEach(r => {
+      const tr = document.createElement("tr");
+
+      [r.centro, numero(r.registrazioni), numero(r.fan_distinti)]
+        .forEach(valore => {
+          const td = document.createElement("td");
+          td.textContent = valore;
+          tr.appendChild(td);
+        });
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  const canvas = document.getElementById("graficoConfronto");
+
+  if (graficoConfronto) {
+    graficoConfronto.destroy();
+  }
+
+  graficoConfronto = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: righe.map(r => r.centro),
+      datasets: [
+        {
+          label: "Registrazioni",
+          data: righe.map(r => Number(r.registrazioni))
+        },
+        {
+          label: "Fan distinti",
+          data: righe.map(r => Number(r.fan_distinti))
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom"
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+  
   function mostraRiepilogo(data) {
     const r = data.riepilogo || {};
 
@@ -515,6 +622,7 @@
       mostraRiepilogo(data);
       mostraAndamento(data.andamento_mensile || []);
       mostraClassifica(data.classifica_insegne || []);
+      await mostraConfronto(null, null);
 
       const r = data.riepilogo || {};
 
