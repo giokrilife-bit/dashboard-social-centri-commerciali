@@ -1096,10 +1096,7 @@ btnImporta.addEventListener("click", async () => {
       totaleRighe - righeInserite
     );
 
-    const statoFinale =
-      righeScartate > 0
-        ? "COMPLETATA_CON_SCARTI"
-        : "COMPLETATA";
+    const statoFinale = "completata";
 
     const chiusura = await invocaImportazione({
       action: "finish",
@@ -1154,7 +1151,7 @@ btnImporta.addEventListener("click", async () => {
             0,
             totaleRighe - righeInserite
           ),
-          status: "ERRORE",
+          status: "errore",
           notes: "Importazione interrotta: " + error.message
         });
       } catch (erroreChiusura) {
