@@ -1,0 +1,196 @@
+
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Area amministratore - Dashboard Social</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f5f8;
+      color: #243247;
+      margin: 0;
+      padding: 30px 15px;
+    }
+    main {
+      max-width: 600px;
+      margin: 30px auto;
+      background: white;
+      padding: 28px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.07);
+    }
+    h1 { color: #183b63; font-size: 24px; }
+    label { display: block; margin-top: 18px; font-weight: bold; }
+    input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 12px;
+      margin-top: 7px;
+      border: 1px solid #ccd3dc;
+      border-radius: 6px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 12px 18px;
+      border: 0;
+      border-radius: 6px;
+      background: #183b63;
+      color: white;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #areaUpload, #logout { display: none; }
+    #messaggio { margin-top: 18px; line-height: 1.5; }
+    .nota { color: #687589; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Area amministratore</h1>
+  <p class="nota">Dashboard Social Centri Commerciali</p>
+
+  <section id="areaLogin">
+    <h2>Accesso riservato</h2>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username">
+
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+
+    <button id="login">Accedi</button>
+  </section>
+
+  <section id="areaUpload">
+    <h2>Caricamento database</h2>
+    <p>Seleziona il nuovo file Excel da caricare su Supabase.</p>
+
+    <label for="fileExcel">File Excel (.xlsx)</label>
+    <input id="fileExcel" type="file"
+           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+
+    <button id="carica">Carica file</button>
+    <button id="logout">Esci</button>
+  </section>
+
+  <div id="messaggio" role="status"></div>
+</main>
+
+<script>
+  const SUPABASE_URL = "https://gjeitedncggvvovifuej.supabase.co";
+  const SUPABASE_KEY = "INSERIRE_PUBLISHABLE_KEY";
+
+  const client = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY
+  );
+
+  const messaggio = document.getElementById("messaggio");
+  const areaLogin = document.getElementById("areaLogin");
+  const areaUpload = document.getElementById("areaUpload");
+
+  function mostraMessaggio(testo, errore = false) {
+    messaggio.textContent = testo;
+    messaggio.style.color = errore ? "#b42318" : "#187044";
+  }
+
+  function mostraArea(autenticato) {
+    areaLogin.style.display = autenticato ? "none" : "block";
+    areaUpload.style.display = autenticato ? "block" : "none";
+    document.getElementById("logout").style.display =
+      autenticato ? "inline-block" : "none";
+  }
+
+  document.getElementById("login").addEventListener("click", async () => {
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+
+    mostraMessaggio("Verifica accesso...");
+
+    const { error } = await client.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) {
+      mostraMessaggio("Accesso non riuscito: " + error.message, true);
+      return;
+    }
+
+    const { data, error: adminError } =
+      await client.rpc("is_dashboard_admin");
+
+    if (adminError || data !== true) {
+      await client.auth.signOut();
+      mostraMessaggio("Questo account non è autorizzato.", true);
+      return;
+    }
+
+    mostraArea(true);
+    mostraMessaggio("Accesso effettuato. Puoi selezionare il file Excel.");
+  });
+
+  document.getElementById("carica").addEventListener("click", async () => {
+    const file = document.getElementById("fileExcel").files[0];
+
+    if (!file) {
+      mostraMessaggio("Seleziona prima un file Excel.", true);
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      mostraMessaggio("È consentito soltanto un file .xlsx.", true);
+      return;
+    }
+
+    const pulsante = document.getElementById("carica");
+    pulsante.disabled = true;
+    mostraMessaggio("Caricamento del file in corso...");
+
+    const percorso = file.name;
+
+    const { error } = await client.storage
+      .from("import-social")
+      .upload(percorso, file, {
+        upsert: true,
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+
+    pulsante.disabled = false;
+
+    if (error) {
+      mostraMessaggio("Caricamento non riuscito: " + error.message, true);
+      return;
+    }
+
+    mostraMessaggio(
+      "File caricato correttamente. L'importazione dei dati non è ancora stata avviata."
+    );
+  });
+
+  document.getElementById("logout").addEventListener("click", async () => {
+    await client.auth.signOut();
+    mostraArea(false);
+    mostraMessaggio("Sessione terminata.");
+  });
+
+  client.auth.getSession().then(async ({ data }) => {
+    if (!data.session) return;
+
+    const { data: isAdmin, error } =
+      await client.rpc("is_dashboard_admin");
+
+    if (!error && isAdmin === true) {
+      mostraArea(true);
+      mostraMessaggio("Sessione amministratore attiva.");
+    } else {
+      await client.auth.signOut();
+    }
+  });
+</script>
+</body>
+</html>
