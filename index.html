@@ -3,37 +3,540 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard Social Centri Commerciali</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Social - Centri Commerciali</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
+    * { box-sizing: border-box; }
+
     body {
+      margin: 0;
       font-family: Arial, sans-serif;
       background: #f3f5f8;
       color: #243247;
+    }
+
+    header {
+      background: #183b63;
+      color: white;
+      padding: 28px 20px;
+    }
+
+    header .inner, main {
+      max-width: 1180px;
+      margin: auto;
+    }
+
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 27px;
+    }
+
+    header p {
       margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
+      color: #dce7f3;
+      line-height: 1.5;
     }
-    main {
+
+    main { padding: 24px 18px 45px; }
+
+    .panel, .metric {
       background: white;
-      padding: 40px;
-      margin: 20px;
-      border-radius: 14px;
-      max-width: 650px;
-      box-shadow: 0 4px 20px rgba(0,0,0,.07);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 3px 14px rgba(0,0,0,.045);
     }
-    h1 { color: #183b63; }
-    p { line-height: 1.6; }
+
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: bold;
+      margin-bottom: 7px;
+      color: #526174;
+    }
+
+    select, input, button {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #d5dce5;
+      border-radius: 7px;
+      background: white;
+      font-size: 14px;
+      color: #243247;
+    }
+
+    button {
+      background: #183b63;
+      color: white;
+      border: 0;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 20px;
+    }
+
+    button:hover { background: #245486; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .metric small {
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 29px;
+      color: #183b63;
+      margin-top: 9px;
+    }
+
+    .section-title {
+      font-size: 19px;
+      margin: 0 0 17px;
+      color: #183b63;
+    }
+
+    .chart-panel { margin-bottom: 20px; }
+
+    .chart-wrap {
+      position: relative;
+      height: 330px;
+    }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 12px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e8edf2;
+    }
+
+    th {
+      color: #526174;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .center-heading {
+      margin: 22px 0 10px;
+      color: #183b63;
+      font-size: 16px;
+    }
+
+    .notice {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: #eaf0f7;
+      border-radius: 8px;
+      color: #42536a;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .status {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0 0 15px;
+    }
+
+    .error { color: #b42318; }
+    .empty { color: #64748b; padding: 15px 0; }
+
+    footer {
+      text-align: center;
+      color: #8793a3;
+      font-size: 12px;
+      padding: 20px;
+    }
+
+    @media (max-width: 700px) {
+      .filters, .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      header h1 { font-size: 22px; }
+      .chart-wrap { height: 270px; }
+      main { padding: 16px 12px 30px; }
+    }
   </style>
 </head>
+
 <body>
-  <main>
+
+<header>
+  <div class="inner">
     <h1>Dashboard Social Centri Commerciali</h1>
-    <p>Analisi delle interazioni social e della frequentazione dei centri commerciali.</p>
-    <p><strong>Area di lavoro in preparazione.</strong></p>
-  </main>
+    <p>Analisi delle interazioni social, dei fan e delle insegne presenti nei dati monitorati.</p>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel" style="margin-bottom:20px">
+    <h2 class="section-title">Filtri di analisi</h2>
+
+    <div class="filters">
+      <div>
+        <label for="centro">Centro commerciale</label>
+        <select id="centro">
+          <option value="">Tutti i centri</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="dataInizio">Data iniziale</label>
+        <input type="date" id="dataInizio">
+      </div>
+
+      <div>
+        <label for="dataFine">Data finale</label>
+        <input type="date" id="dataFine">
+      </div>
+    </div>
+
+    <button id="aggiorna">Aggiorna analisi</button>
+  </section>
+
+  <p id="stato" class="status">Caricamento dati...</p>
+
+  <section class="metrics">
+    <div class="metric">
+      <small>Registrazioni di interazioni</small>
+      <strong id="registrazioni">—</strong>
+    </div>
+
+    <div class="metric">
+      <small>Fan distinti</small>
+      <strong id="fan">—</strong>
+    </div>
+
+    <div class="metric">
+      <small>Centri monitorati</small>
+      <strong id="numeroCentri">—</strong>
+    </div>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2 class="section-title">Andamento mensile</h2>
+    <div class="chart-wrap">
+      <canvas id="graficoMensile"></canvas>
+    </div>
+    <p id="periodo" class="status"></p>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">Classifica insegne</h2>
+    <div id="classifica"></div>
+  </section>
+
+  <div class="notice">
+    <strong>Nota metodologica</strong><br>
+    Le registrazioni rappresentano interazioni social presenti nei dati raccolti.
+    I fan distinti indicano gli utenti identificati in modo univoco nei dati.
+    Queste metriche non rappresentano gli ingressi o le presenze fisiche
+    all'interno dei centri commerciali.
+  </div>
+
+</main>
+
+<footer>
+  Dashboard Social Centri Commerciali
+</footer>
+
+<script>
+  const SUPABASE_URL = "https://gjeitedncggvvovifuej.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_Oww_JhJicwb8whCwYZjJJw_vtcG720X";
+
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY
+  );
+
+  let grafico = null;
+
+  const colori = [
+    "#245486",
+    "#e28a36",
+    "#2c927c",
+    "#9b6ac4",
+    "#c65362",
+    "#6b829d"
+  ];
+
+  function numero(valore) {
+    return Number(valore || 0).toLocaleString("it-IT");
+  }
+
+  function mostraStato(messaggio, errore = false) {
+    const elemento = document.getElementById("stato");
+    elemento.textContent = messaggio;
+    elemento.className = errore ? "status error" : "status";
+  }
+
+  async function caricaDashboard() {
+    const slug = document.getElementById("centro").value;
+    const dataInizio = document.getElementById("dataInizio").value;
+    const dataFine = document.getElementById("dataFine").value;
+
+    if (dataInizio && dataFine && dataInizio > dataFine) {
+      mostraStato("La data iniziale non può essere successiva alla data finale.", true);
+      return;
+    }
+
+    const pulsante = document.getElementById("aggiorna");
+    pulsante.disabled = true;
+    pulsante.textContent = "Caricamento...";
+    mostraStato("Aggiornamento dei dati in corso...");
+
+    try {
+      const { data, error } = await supabaseClient.rpc(
+        "get_social_dashboard",
+        {
+          p_centro_slug: slug || null,
+          p_data_inizio: dataInizio || null,
+          p_data_fine: dataFine || null
+        }
+      );
+
+      if (error) throw error;
+      if (!data) throw new Error("Nessun dato ricevuto da Supabase.");
+
+      mostraRiepilogo(data);
+      mostraAndamento(data.andamento_mensile || []);
+      mostraClassifica(data.classifica_insegne || []);
+
+      const riepilogo = data.riepilogo || {};
+      const inizio = riepilogo.prima_data || "—";
+      const fine = riepilogo.ultima_data || "—";
+
+      document.getElementById("periodo").textContent =
+        "Periodo disponibile nei risultati: " + inizio + " – " + fine;
+
+      mostraStato("Dati aggiornati correttamente.");
+
+    } catch (errore) {
+      console.error("Errore dashboard:", errore);
+      mostraStato("Errore nel caricamento: " + (errore.message || errore), true);
+    } finally {
+      pulsante.disabled = false;
+      pulsante.textContent = "Aggiorna analisi";
+    }
+  }
+
+  function mostraRiepilogo(data) {
+    const r = data.riepilogo || {};
+
+    document.getElementById("registrazioni").textContent =
+      numero(r.registrazioni);
+
+    document.getElementById("fan").textContent =
+      numero(r.fan_distinti);
+
+    document.getElementById("numeroCentri").textContent =
+      numero((data.centri || []).length);
+  }
+
+  function mostraAndamento(righe) {
+    const mesi = [...new Set(righe.map(r => r.mese))].sort();
+
+    const centri = [...new Set(righe.map(r => r.centro))];
+
+    const datasets = centri.map((centro, indice) => {
+      const valori = mesi.map(mese => {
+        const riga = righe.find(
+          r => r.centro === centro && r.mese === mese
+        );
+        return riga ? Number(riga.registrazioni) : null;
+      });
+
+      return {
+        label: centro,
+        data: valori,
+        borderColor: colori[indice % colori.length],
+        backgroundColor: colori[indice % colori.length],
+        tension: 0.25,
+        spanGaps: false
+      };
+    });
+
+    const contesto = document.getElementById("graficoMensile");
+
+    if (grafico) grafico.destroy();
+
+    if (mesi.length === 0) {
+      grafico = null;
+      contesto.style.display = "none";
+      return;
+    }
+
+    contesto.style.display = "block";
+
+    grafico = new Chart(contesto, {
+      type: "line",
+      data: {
+        labels: mesi,
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: "index",
+          intersect: false
+        },
+        plugins: {
+          legend: {
+            position: "bottom"
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: "Registrazioni"
+            }
+          },
+          x: {
+            title: {
+              display: true,
+              text: "Mese"
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function mostraClassifica(righe) {
+    const contenitore = document.getElementById("classifica");
+    contenitore.innerHTML = "";
+
+    if (!righe.length) {
+      contenitore.innerHTML =
+        '<p class="empty">Nessuna insegna disponibile per i filtri selezionati.</p>';
+      return;
+    }
+
+    const centri = [...new Set(righe.map(r => r.centro))];
+
+    centri.forEach(centro => {
+      const titolo = document.createElement("h3");
+      titolo.className = "center-heading";
+      titolo.textContent = centro;
+      contenitore.appendChild(titolo);
+
+      const tabella = document.createElement("div");
+      tabella.className = "table-wrap";
+
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Posizione</th>
+            <th>Insegna</th>
+            <th>Registrazioni</th>
+            <th>Fan distinti</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+
+      const tbody = table.querySelector("tbody");
+
+      righe
+        .filter(r => r.centro === centro)
+        .sort((a, b) => Number(a.posizione) - Number(b.posizione))
+        .forEach(r => {
+          const tr = document.createElement("tr");
+
+          [
+            r.posizione,
+            r.insegna,
+            numero(r.registrazioni),
+            numero(r.fan_distinti)
+          ].forEach(valore => {
+            const td = document.createElement("td");
+            td.textContent = valore ?? "";
+            tr.appendChild(td);
+          });
+
+          tbody.appendChild(tr);
+        });
+
+      tabella.appendChild(table);
+      contenitore.appendChild(tabella);
+    });
+  }
+
+  async function inizializza() {
+    try {
+      const { data, error } = await supabaseClient.rpc(
+        "get_social_dashboard",
+        {
+          p_centro_slug: null,
+          p_data_inizio: null,
+          p_data_fine: null
+        }
+      );
+
+      if (error) throw error;
+
+      const selettore = document.getElementById("centro");
+
+      (data.centri || []).forEach(centro => {
+        const opzione = document.createElement("option");
+        opzione.value = centro.slug;
+        opzione.textContent = centro.nome;
+        selettore.appendChild(opzione);
+      });
+
+      mostraRiepilogo(data);
+      mostraAndamento(data.andamento_mensile || []);
+      mostraClassifica(data.classifica_insegne || []);
+
+      const r = data.riepilogo || {};
+
+      document.getElementById("periodo").textContent =
+        "Periodo disponibile nei risultati: " +
+        (r.prima_data || "—") + " – " + (r.ultima_data || "—");
+
+      mostraStato("Dati caricati correttamente.");
+
+    } catch (errore) {
+      console.error("Errore inizializzazione:", errore);
+      mostraStato("Errore nel caricamento iniziale: " + (errore.message || errore), true);
+    }
+  }
+
+  document.getElementById("aggiorna").addEventListener(
+    "click",
+    caricaDashboard
+  );
+
+  inizializza();
+</script>
+
 </body>
 </html>
