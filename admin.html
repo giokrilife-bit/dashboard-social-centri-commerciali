@@ -5,7 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Area amministratore - Dashboard Social</title>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
     body {
@@ -17,7 +19,7 @@
     }
 
     main {
-      max-width: 650px;
+      max-width: 720px;
       margin: 30px auto;
       background: white;
       padding: 28px;
@@ -25,7 +27,15 @@
       box-shadow: 0 4px 20px rgba(0,0,0,.07);
     }
 
-    h1 { color: #183b63; font-size: 24px; }
+    h1 {
+      color: #183b63;
+      font-size: 24px;
+    }
+
+    h2 {
+      font-size: 19px;
+      margin-top: 25px;
+    }
 
     label {
       display: block;
@@ -59,11 +69,14 @@
       cursor: not-allowed;
     }
 
-    #areaUpload, #logout { display: none; }
+    #areaUpload, #logout {
+      display: none;
+    }
 
     #messaggio {
       margin-top: 18px;
       line-height: 1.5;
+      font-weight: 600;
     }
 
     .nota {
@@ -88,6 +101,31 @@
       max-height: 450px;
       overflow-y: auto;
     }
+
+    .progress-box {
+      margin-top: 18px;
+      background: #e8edf3;
+      border-radius: 8px;
+      height: 12px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: #187044;
+      transition: width .2s;
+    }
+
+    .nota-importazione {
+      background: #f3f5f8;
+      border-left: 4px solid #183b63;
+      padding: 12px;
+      margin-top: 18px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 
@@ -110,10 +148,11 @@
   </section>
 
   <section id="areaUpload">
-    <h2>Caricamento database</h2>
+    <h2>Importazione database</h2>
 
     <p>
-      Seleziona il nuovo file Excel da caricare su Supabase.
+      Seleziona il file Excel da verificare e importare.
+      Il foglio utilizzato sarà esclusivamente <strong>FoglioDB</strong>.
     </p>
 
     <label for="fileExcel">File Excel (.xlsx)</label>
@@ -124,11 +163,21 @@
       accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     >
 
-    <button id="carica">Carica file</button>
+    <button id="carica">Conferma file</button>
     <button id="verifica" disabled>Verifica file</button>
     <button id="importa" disabled>Importa dati</button>
     <button id="logout">Esci</button>
+
+    <div class="nota-importazione">
+      Il file viene letto direttamente dal browser.
+      Non viene caricato nello spazio Storage di Supabase.
+      L'importazione avviene in blocchi da massimo 100 righe.
+    </div>
   </section>
+
+  <div class="progress-box" id="progressBox">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
 
   <div id="messaggio" role="status"></div>
   <div id="risultato"></div>
@@ -136,72 +185,657 @@
 </main>
 
 <script>
-  const SUPABASE_URL =
-    "https://gjeitedncggvvovifuej.supabase.co";
+"use strict";
 
-  const SUPABASE_KEY =
-    "sb_publishable_Oww_JhJicwb8whCwYZjJJw_vtcG720X";
+// --------------------------------------------------
+// CONFIGURAZIONE
+// --------------------------------------------------
 
-  const client = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_KEY
+const SUPABASE_URL =
+  "https://gjeitedncggvvovifuej.supabase.co";
+
+const SUPABASE_KEY =
+  "sb_publishable_Oww_JhJicwb8whCwYZjJJw_vtcG720X";
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_BATCH_SIZE = 100;
+
+const FOGLIO_RICHIESTO = "FoglioDB";
+
+const INTESTAZIONI = [
+  "FAN",
+  "DATA",
+  "POST",
+  "INSEGNA",
+  "TIPO",
+  "MESSENGER",
+  "FAN N°",
+  "CONTENUTO",
+  "DETTAGLIO",
+  "PAESE",
+  "CC",
+  "CITTA'",
+  "COMMENTI",
+  "CONDIVISIONI",
+  "IMMAGINE"
+];
+
+const client = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+// --------------------------------------------------
+// ELEMENTI PAGINA
+// --------------------------------------------------
+
+const messaggio = document.getElementById("messaggio");
+const areaLogin = document.getElementById("areaLogin");
+const areaUpload = document.getElementById("areaUpload");
+
+const btnCarica = document.getElementById("carica");
+const btnVerifica = document.getElementById("verifica");
+const btnImporta = document.getElementById("importa");
+
+const fileExcel = document.getElementById("fileExcel");
+const risultato = document.getElementById("risultato");
+
+const progressBox = document.getElementById("progressBox");
+const progressBar = document.getElementById("progressBar");
+
+// --------------------------------------------------
+// STATO APPLICAZIONE
+// --------------------------------------------------
+
+let fileSelezionato = null;
+let righeVerificate = [];
+let reportVerifica = null;
+let importazioneCompletata = false;
+
+// --------------------------------------------------
+// FUNZIONI GENERALI
+// --------------------------------------------------
+
+function mostraMessaggio(testo, errore = false) {
+  messaggio.textContent = testo;
+  messaggio.style.color = errore ? "#b42318" : "#187044";
+}
+
+function mostraRisultato(dati) {
+  risultato.innerHTML = "";
+
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(dati, null, 2);
+
+  risultato.appendChild(pre);
+}
+
+function mostraArea(autenticato) {
+  areaLogin.style.display = autenticato ? "none" : "block";
+  areaUpload.style.display = autenticato ? "block" : "none";
+
+  document.getElementById("logout").style.display =
+    autenticato ? "inline-block" : "none";
+}
+
+function aggiornaProgresso(percentuale) {
+  progressBox.style.display = "block";
+
+  const valore = Math.max(0, Math.min(100, percentuale));
+
+  progressBar.style.width = valore + "%";
+}
+
+function nascondiProgresso() {
+  progressBox.style.display = "none";
+  progressBar.style.width = "0%";
+}
+
+function resetImportazione() {
+  fileSelezionato = null;
+  righeVerificate = [];
+  reportVerifica = null;
+  importazioneCompletata = false;
+
+  btnVerifica.disabled = true;
+  btnImporta.disabled = true;
+
+  risultato.innerHTML = "";
+  nascondiProgresso();
+}
+
+// --------------------------------------------------
+// NORMALIZZAZIONE TESTI
+// --------------------------------------------------
+
+function testo(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const result = String(value).trim();
+
+  return result || null;
+}
+
+function normalizzaFan(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizzaCentro(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function normalizzaIntestazione(value) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+// --------------------------------------------------
+// CONVERSIONE NUMERI
+// --------------------------------------------------
+
+function numeroIntero(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.trunc(value) : null;
+  }
+
+  let s = String(value).trim();
+
+  if (!s) return null;
+
+  s = s.replace(/[^\d-]/g, "");
+
+  if (!s || s === "-") return null;
+
+  const n = Number(s);
+
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+// --------------------------------------------------
+// CONVERSIONE DATE
+// --------------------------------------------------
+
+function formattaData(year, month, day) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+
+  if (year < 1900 || year > 2200) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+
+  const d = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return [
+    String(year).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0")
+  ].join("-");
+}
+
+function convertiData(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  // Data già interpretata come oggetto Date.
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return formattaData(
+      value.getFullYear(),
+      value.getMonth() + 1,
+      value.getDate()
+    );
+  }
+
+  // Numero seriale Excel.
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+
+    if (!parsed) return null;
+
+    return formattaData(
+      parsed.y,
+      parsed.m,
+      parsed.d
+    );
+  }
+
+  const s = String(value).trim();
+
+  if (!s) return null;
+
+  // Formato ISO: YYYY-MM-DD oppure YYYY-MM-DD...
+  let match = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+
+  if (match) {
+    return formattaData(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    );
+  }
+
+  // Formato italiano: DD/MM/YYYY o DD-MM-YYYY.
+  match = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);
+
+  if (match) {
+    return formattaData(
+      Number(match[3]),
+      Number(match[2]),
+      Number(match[1])
+    );
+  }
+
+  // Ultimo tentativo: data riconosciuta dal browser.
+  const d = new Date(s);
+
+  if (!isNaN(d.getTime())) {
+    return formattaData(
+      d.getFullYear(),
+      d.getMonth() + 1,
+      d.getDate()
+    );
+  }
+
+  return null;
+}
+
+// --------------------------------------------------
+// LETTURA CENTRI COMMERCIALI
+// --------------------------------------------------
+
+async function leggiCentri() {
+  const { data, error } = await client
+    .from("centri_commerciali")
+    .select("id,nome,slug")
+    .eq("attivo", true);
+
+  if (error) {
+    throw new Error(
+      "Impossibile leggere i centri commerciali: " + error.message
+    );
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error(
+      "Non risultano centri commerciali attivi nel database."
+    );
+  }
+
+  const mappa = new Map();
+
+  for (const centro of data) {
+    const nome = normalizzaCentro(centro.nome);
+    const slug = normalizzaCentro(centro.slug);
+
+    if (nome) mappa.set(nome, centro);
+    if (slug) mappa.set(slug, centro);
+  }
+
+  return mappa;
+}
+
+// --------------------------------------------------
+// PREPARAZIONE SINGOLA RIGA
+// --------------------------------------------------
+
+function preparaRiga(values, mappaCentri) {
+  const fanNome = testo(values[0]);
+  const dataPost = convertiData(values[1]);
+  const postUrl = testo(values[2]);
+
+  const insegna = testo(values[3]);
+  const tipo = testo(values[4]);
+  const messenger = testo(values[5]);
+
+  const fanNumero = numeroIntero(values[6]);
+
+  const contenuto = testo(values[7]);
+  const dettaglio = testo(values[8]);
+  const paese = testo(values[9]);
+
+  const centroOriginale = testo(values[10]);
+  const citta = testo(values[11]);
+
+  const commenti = numeroIntero(values[12]);
+  const condivisioni = numeroIntero(values[13]);
+
+  const immagine = testo(values[14]);
+
+  const fanChiave = normalizzaFan(fanNome);
+
+  const centroNormalizzato = normalizzaCentro(centroOriginale);
+
+  const centro = mappaCentri.get(centroNormalizzato);
+
+  if (!fanNome || !fanChiave) {
+    return { valida: false, motivo: "FAN mancante" };
+  }
+
+  if (!dataPost) {
+    return { valida: false, motivo: "DATA non valida" };
+  }
+
+  if (!postUrl) {
+    return { valida: false, motivo: "POST mancante" };
+  }
+
+  if (!centroOriginale || !centro) {
+    return {
+      valida: false,
+      motivo: "Centro commerciale non riconosciuto",
+      centro: centroOriginale || "(vuoto)"
+    };
+  }
+
+  return {
+    valida: true,
+    riga: {
+      centro_id: centro.id,
+      centro_originale: centroOriginale,
+      fan_nome: fanNome,
+      fan_chiave: fanChiave,
+      data_post: dataPost,
+      post_url: postUrl,
+      insegna: insegna,
+      tipo: tipo,
+      messenger: messenger,
+      fan_numero: fanNumero,
+      contenuto: contenuto,
+      dettaglio: dettaglio,
+      paese: paese,
+      cc: centroOriginale,
+      citta: citta,
+      commenti: commenti,
+      condivisioni: condivisioni,
+      immagine: immagine
+    }
+  };
+}
+
+// --------------------------------------------------
+// VERIFICA INTESTAZIONI
+// --------------------------------------------------
+
+function verificaIntestazioni(header) {
+  if (!header || header.length < 15) {
+    throw new Error(
+      "Il foglio FoglioDB non contiene le 15 colonne previste."
+    );
+  }
+
+  for (let i = 0; i < INTESTAZIONI.length; i++) {
+    const trovata = normalizzaIntestazione(header[i]);
+    const attesa = normalizzaIntestazione(INTESTAZIONI[i]);
+
+    if (trovata !== attesa) {
+      throw new Error(
+        "Intestazione non corrispondente alla colonna " +
+        (i + 1) +
+        ". Attesa: " +
+        INTESTAZIONI[i] +
+        ". Trovata: " +
+        (header[i] ?? "(vuota)")
+      );
+    }
+  }
+}
+
+// --------------------------------------------------
+// VERIFICA FILE EXCEL
+// --------------------------------------------------
+
+async function verificaFileExcel(file) {
+  mostraMessaggio("Lettura del file Excel in corso...");
+
+  const buffer = await file.arrayBuffer();
+
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    sheets: FOGLIO_RICHIESTO,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    cellText: false,
+    cellNF: false,
+    dense: false
+  });
+
+  const nomeFoglio = workbook.SheetNames.find(
+    nome => nome.toUpperCase() === FOGLIO_RICHIESTO.toUpperCase()
   );
 
-  const messaggio = document.getElementById("messaggio");
-  const areaLogin = document.getElementById("areaLogin");
-  const areaUpload = document.getElementById("areaUpload");
-
-  const btnCarica = document.getElementById("carica");
-  const btnVerifica = document.getElementById("verifica");
-  const btnImporta = document.getElementById("importa");
-
-  const risultato = document.getElementById("risultato");
-
-  let percorsoCaricato = null;
-  let nomeFileCaricato = null;
-  let reportVerifica = null;
-
-  function mostraMessaggio(testo, errore = false) {
-    messaggio.textContent = testo;
-    messaggio.style.color = errore ? "#b42318" : "#187044";
+  if (!nomeFoglio) {
+    throw new Error(
+      "Nel file non è presente il foglio richiesto: " +
+      FOGLIO_RICHIESTO
+    );
   }
 
-  function mostraRisultato(dati) {
-    risultato.innerHTML = "";
+  const sheet = workbook.Sheets[nomeFoglio];
 
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(dati, null, 2);
-
-    risultato.appendChild(pre);
+  if (!sheet) {
+    throw new Error(
+      "Impossibile leggere il foglio " + FOGLIO_RICHIESTO
+    );
   }
 
-  function mostraArea(autenticato) {
-    areaLogin.style.display = autenticato ? "none" : "block";
-    areaUpload.style.display = autenticato ? "block" : "none";
+  const righe = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    raw: true,
+    defval: null,
+    blankrows: false
+  });
 
-    document.getElementById("logout").style.display =
-      autenticato ? "inline-block" : "none";
+  if (!righe || righe.length < 2) {
+    throw new Error(
+      "Il foglio non contiene righe di dati."
+    );
   }
 
-  // ACCESSO AMMINISTRATORE
+  verificaIntestazioni(righe[0]);
 
-  document.getElementById("login").addEventListener("click", async () => {
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value;
+  mostraMessaggio(
+    "Intestazioni corrette. Controllo i dati e i centri commerciali..."
+  );
 
-    mostraMessaggio("Verifica accesso...");
+  const mappaCentri = await leggiCentri();
 
+  const righeValide = [];
+  const chiaviGiaViste = new Set();
+
+  const errori = {};
+  const centriNonRiconosciuti = {};
+
+  let righeTotali = 0;
+  let righeValidePrimaDeduplica = 0;
+  let duplicatiNelFile = 0;
+
+  let dataMinima = null;
+  let dataMassima = null;
+
+  for (let i = 1; i < righe.length; i++) {
+    const valori = righe[i] || [];
+
+    // Considera soltanto le prime 15 colonne.
+    const dati = valori.slice(0, 15);
+
+    const rigaVuota = dati.every(
+      valore => valore === null ||
+        valore === undefined ||
+        String(valore).trim() === ""
+    );
+
+    if (rigaVuota) continue;
+
+    righeTotali++;
+
+    const risultatoRiga = preparaRiga(dati, mappaCentri);
+
+    if (!risultatoRiga.valida) {
+      const motivo = risultatoRiga.motivo;
+
+      errori[motivo] = (errori[motivo] || 0) + 1;
+
+      if (motivo === "Centro commerciale non riconosciuto") {
+        const centro = risultatoRiga.centro;
+
+        centriNonRiconosciuti[centro] =
+          (centriNonRiconosciuti[centro] || 0) + 1;
+      }
+
+      continue;
+    }
+
+    righeValidePrimaDeduplica++;
+
+    const riga = risultatoRiga.riga;
+
+    const chiave =
+      riga.centro_id +
+      "|" +
+      riga.fan_chiave +
+      "|" +
+      riga.post_url.trim().toLowerCase();
+
+    if (chiaviGiaViste.has(chiave)) {
+      duplicatiNelFile++;
+      continue;
+    }
+
+    chiaviGiaViste.add(chiave);
+    righeValide.push(riga);
+
+    if (!dataMinima || riga.data_post < dataMinima) {
+      dataMinima = riga.data_post;
+    }
+
+    if (!dataMassima || riga.data_post > dataMassima) {
+      dataMassima = riga.data_post;
+    }
+  }
+
+  const righeNonValide =
+    righeTotali - righeValidePrimaDeduplica;
+
+  return {
+    righe: righeValide,
+    report: {
+      file: file.name,
+      foglio: nomeFoglio,
+      righe_totali: righeTotali,
+      righe_valide_prima_deduplica: righeValidePrimaDeduplica,
+      duplicati_nel_file: duplicatiNelFile,
+      righe_valide_distinte: righeValide.length,
+      righe_non_valide: righeNonValide,
+      data_minima: dataMinima,
+      data_massima: dataMassima,
+      errori: errori,
+      centri_non_riconosciuti: centriNonRiconosciuti,
+      database_modificato: false
+    }
+  };
+}
+
+// --------------------------------------------------
+// CHIAMATA EDGE FUNCTION
+// --------------------------------------------------
+
+async function invocaImportazione(payload) {
+  const { data, error } = await client.functions.invoke(
+    "import-social",
+    {
+      body: payload
+    }
+  );
+
+  if (error) {
+    let dettaglio = error.message || "Errore nella chiamata.";
+
+    if (error.context) {
+      try {
+        const response = error.context.clone
+          ? error.context.clone()
+          : error.context;
+
+        if (response && typeof response.json === "function") {
+          const corpo = await response.json();
+
+          if (corpo && corpo.error) {
+            dettaglio = corpo.error;
+          }
+        }
+      } catch (_) {
+        // Mantiene il messaggio originale.
+      }
+    }
+
+    throw new Error(dettaglio);
+  }
+
+  if (!data || data.success !== true) {
+    throw new Error(
+      data?.error || "La funzione non ha restituito una risposta valida."
+    );
+  }
+
+  return data;
+}
+
+// --------------------------------------------------
+// ACCESSO AMMINISTRATORE
+// --------------------------------------------------
+
+document.getElementById("login").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+
+  if (!email || !password) {
+    mostraMessaggio("Inserisci email e password.", true);
+    return;
+  }
+
+  const btnLogin = document.getElementById("login");
+  btnLogin.disabled = true;
+
+  mostraMessaggio("Verifica accesso...");
+
+  try {
     const { error } = await client.auth.signInWithPassword({
       email,
       password
     });
 
     if (error) {
-      mostraMessaggio(
-        "Accesso non riuscito: " + error.message,
-        true
-      );
-      return;
+      throw new Error(error.message);
     }
 
     const { data, error: adminError } =
@@ -210,11 +844,7 @@
     if (adminError || data !== true) {
       await client.auth.signOut();
 
-      mostraMessaggio(
-        "Questo account non è autorizzato.",
-        true
-      );
-      return;
+      throw new Error("Questo account non è autorizzato.");
     }
 
     mostraArea(true);
@@ -222,266 +852,376 @@
     mostraMessaggio(
       "Accesso effettuato. Puoi selezionare il file Excel."
     );
-  });
 
-  // CARICAMENTO FILE EXCEL
-
-  btnCarica.addEventListener("click", async () => {
-    const file = document.getElementById("fileExcel").files[0];
-
-    if (!file) {
-      mostraMessaggio("Seleziona prima un file Excel.", true);
-      return;
-    }
-
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      mostraMessaggio(
-        "È consentito soltanto un file .xlsx.",
-        true
-      );
-      return;
-    }
-
-    if (file.size > 20 * 1024 * 1024) {
-      mostraMessaggio(
-        "Il file supera il limite massimo di 20 MB.",
-        true
-      );
-      return;
-    }
-
-    btnCarica.disabled = true;
-    btnVerifica.disabled = true;
-    btnImporta.disabled = true;
-
-    percorsoCaricato = null;
-    nomeFileCaricato = null;
-    reportVerifica = null;
-
-    risultato.innerHTML = "";
-
-    mostraMessaggio("Caricamento del file in corso...");
-
-    // Nome univoco: non sovrascrive i file precedenti.
-    const percorso = `${Date.now()}-${file.name}`;
-
-    const { error } = await client.storage
-      .from("import-social")
-      .upload(percorso, file, {
-        upsert: false,
-        contentType:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      });
-
-    btnCarica.disabled = false;
-
-    if (error) {
-      mostraMessaggio(
-        "Caricamento non riuscito: " + error.message,
-        true
-      );
-      return;
-    }
-
-    percorsoCaricato = percorso;
-    nomeFileCaricato = file.name;
-
-    btnVerifica.disabled = false;
-
+  } catch (error) {
     mostraMessaggio(
-      "File caricato correttamente. Ora puoi eseguire la verifica preliminare."
+      "Accesso non riuscito: " + error.message,
+      true
     );
-  });
 
-  // VERIFICA PRELIMINARE: NON MODIFICA IL DATABASE
+  } finally {
+    btnLogin.disabled = false;
+  }
+});
 
-  btnVerifica.addEventListener("click", async () => {
-    if (!percorsoCaricato) {
-      mostraMessaggio(
-        "Prima devi caricare un file Excel.",
-        true
-      );
-      return;
-    }
+// --------------------------------------------------
+// SELEZIONE FILE
+// --------------------------------------------------
 
-    btnVerifica.disabled = true;
-    btnImporta.disabled = true;
+btnCarica.addEventListener("click", () => {
+  const file = fileExcel.files[0];
 
-    reportVerifica = null;
-    risultato.innerHTML = "";
+  if (!file) {
+    mostraMessaggio("Seleziona prima un file Excel.", true);
+    return;
+  }
 
+  if (!file.name.toLowerCase().endsWith(".xlsx")) {
     mostraMessaggio(
-      "Verifica preliminare in corso. Attendi..."
+      "È consentito soltanto un file .xlsx.",
+      true
     );
+    return;
+  }
 
-    const { data, error } = await client.functions.invoke(
-      "import-social",
-      {
-        body: {
-          path: percorsoCaricato,
-          filename: nomeFileCaricato,
-          dry_run: true
-        }
-      }
+  if (file.size > MAX_FILE_SIZE) {
+    mostraMessaggio(
+      "Il file supera il limite massimo di 20 MB.",
+      true
     );
+    return;
+  }
 
-    btnVerifica.disabled = false;
+  resetImportazione();
 
-    if (error) {
+  fileSelezionato = file;
+
+  btnVerifica.disabled = false;
+
+  mostraMessaggio(
+    "File selezionato correttamente: " +
+    file.name +
+    ". Ora puoi eseguire la verifica."
+  );
+});
+
+// Se viene scelto un altro file, si azzera la verifica precedente.
+fileExcel.addEventListener("change", () => {
+  resetImportazione();
+
+  if (fileExcel.files.length > 0) {
+    mostraMessaggio(
+      "Nuovo file selezionato. Premi Conferma file."
+    );
+  }
+});
+
+// --------------------------------------------------
+// VERIFICA PRELIMINARE
+// NON MODIFICA IL DATABASE
+// --------------------------------------------------
+
+btnVerifica.addEventListener("click", async () => {
+  if (!fileSelezionato) {
+    mostraMessaggio(
+      "Prima devi selezionare e confermare un file Excel.",
+      true
+    );
+    return;
+  }
+
+  btnCarica.disabled = true;
+  btnVerifica.disabled = true;
+  btnImporta.disabled = true;
+
+  reportVerifica = null;
+  righeVerificate = [];
+
+  risultato.innerHTML = "";
+
+  try {
+    const esito = await verificaFileExcel(fileSelezionato);
+
+    righeVerificate = esito.righe;
+    reportVerifica = esito.report;
+
+    mostraRisultato(esito.report);
+
+    if (righeVerificate.length === 0) {
       mostraMessaggio(
-        "Verifica non riuscita: " + error.message,
+        "Verifica conclusa, ma non ci sono righe valide da importare.",
         true
       );
       return;
     }
-
-    if (!data || data.success !== true) {
-      mostraMessaggio(
-        data?.error || "La verifica non è stata completata.",
-        true
-      );
-
-      if (data) {
-        mostraRisultato(data);
-      }
-
-      return;
-    }
-
-    if (
-      data.modalita !== "VERIFICA" ||
-      data.database_modificato !== false
-    ) {
-      mostraMessaggio(
-        "Risposta della verifica non conforme. Importazione bloccata.",
-        true
-      );
-
-      mostraRisultato(data);
-      return;
-    }
-
-    reportVerifica = data;
-
-    mostraRisultato(data);
 
     btnImporta.disabled = false;
 
     mostraMessaggio(
-      "Verifica completata. Controlla attentamente il riepilogo prima di importare."
-    );
-  });
-
-  // IMPORTAZIONE EFFETTIVA
-
-  btnImporta.addEventListener("click", async () => {
-    if (!percorsoCaricato || !reportVerifica) {
-      mostraMessaggio(
-        "Devi prima caricare e verificare il file.",
-        true
-      );
-      return;
-    }
-
-    const conferma = window.confirm(
-      "ATTENZIONE: stai per importare i dati nel database.\n\n" +
-      "Hai controllato il rapporto di verifica?\n\n" +
-      "Vuoi procedere con l'importazione?"
+      "Verifica completata. Righe valide distinte: " +
+      righeVerificate.length +
+      ". Controlla il riepilogo prima di importare."
     );
 
-    if (!conferma) {
-      return;
-    }
-
-    btnCarica.disabled = true;
-    btnVerifica.disabled = true;
-    btnImporta.disabled = true;
-
+  } catch (error) {
     mostraMessaggio(
-      "Importazione in corso. Non chiudere questa pagina..."
+      "Verifica non riuscita: " + error.message,
+      true
     );
-
-    const { data, error } = await client.functions.invoke(
-      "import-social",
-      {
-        body: {
-          path: percorsoCaricato,
-          filename: nomeFileCaricato,
-          dry_run: false
-        }
-      }
-    );
-
-    if (error) {
-      btnCarica.disabled = false;
-      btnVerifica.disabled = false;
-
-      mostraMessaggio(
-        "Importazione non riuscita: " + error.message,
-        true
-      );
-      return;
-    }
-
-    mostraRisultato(data);
-
-    if (!data || data.success !== true) {
-      btnCarica.disabled = false;
-      btnVerifica.disabled = false;
-
-      mostraMessaggio(
-        data?.error || "Importazione non completata.",
-        true
-      );
-      return;
-    }
 
     reportVerifica = null;
+    righeVerificate = [];
 
-    mostraMessaggio(
-      "Importazione completata. Controlla il riepilogo qui sopra."
-    );
-
+  } finally {
     btnCarica.disabled = false;
-  });
+    btnVerifica.disabled = false;
+  }
+});
 
-  // USCITA
+// --------------------------------------------------
+// IMPORTAZIONE EFFETTIVA
+// --------------------------------------------------
 
-  document.getElementById("logout").addEventListener("click", async () => {
-    await client.auth.signOut();
+btnImporta.addEventListener("click", async () => {
+  if (
+    !fileSelezionato ||
+    !reportVerifica ||
+    righeVerificate.length === 0
+  ) {
+    mostraMessaggio(
+      "Devi prima selezionare e verificare il file.",
+      true
+    );
+    return;
+  }
 
-    percorsoCaricato = null;
-    nomeFileCaricato = null;
-    reportVerifica = null;
+  if (importazioneCompletata) {
+    mostraMessaggio(
+      "Questo file è già stato importato. Seleziona un nuovo file.",
+      true
+    );
+    return;
+  }
 
-    btnVerifica.disabled = true;
-    btnImporta.disabled = true;
+  const conferma = window.confirm(
+    "ATTENZIONE: stai per importare i dati nel database.\n\n" +
+    "Righe valide distinte: " + righeVerificate.length + "\n" +
+    "Duplicati nel file: " + reportVerifica.duplicati_nel_file + "\n" +
+    "Righe non valide: " + reportVerifica.righe_non_valide + "\n\n" +
+    "Hai controllato il riepilogo?\n\n" +
+    "Vuoi procedere?"
+  );
 
-    risultato.innerHTML = "";
+  if (!conferma) return;
 
-    mostraArea(false);
-    mostraMessaggio("Sessione terminata.");
-  });
+  btnCarica.disabled = true;
+  btnVerifica.disabled = true;
+  btnImporta.disabled = true;
 
-  // CONTROLLO SESSIONE ESISTENTE
+  let importId = null;
+  let righeInserite = 0;
 
-  client.auth.getSession().then(async ({ data }) => {
-    if (!data.session) return;
+  const totaleRighe = reportVerifica.righe_totali;
+  const totaleBlocchi = Math.ceil(
+    righeVerificate.length / MAX_BATCH_SIZE
+  );
 
-    const { data: isAdmin, error } =
-      await client.rpc("is_dashboard_admin");
+  try {
+    mostraMessaggio(
+      "Avvio della registrazione dell'importazione..."
+    );
 
-    if (!error && isAdmin === true) {
-      mostraArea(true);
+    // 1. AVVIO IMPORTAZIONE.
+
+    const avvio = await invocaImportazione({
+      action: "start",
+      filename: fileSelezionato.name,
+      total_rows: totaleRighe,
+      min_date: reportVerifica.data_minima,
+      max_date: reportVerifica.data_massima
+    });
+
+    importId = avvio.importazione_id;
+
+    if (!importId) {
+      throw new Error(
+        "La funzione non ha restituito l'ID dell'importazione."
+      );
+    }
+
+    // 2. INVIO DEI BLOCCHI DA MASSIMO 100 RIGHE.
+
+    for (
+      let inizio = 0;
+      inizio < righeVerificate.length;
+      inizio += MAX_BATCH_SIZE
+    ) {
+      const blocco = righeVerificate.slice(
+        inizio,
+        inizio + MAX_BATCH_SIZE
+      );
+
+      const numeroBlocco =
+        Math.floor(inizio / MAX_BATCH_SIZE) + 1;
 
       mostraMessaggio(
-        "Sessione amministratore attiva."
+        "Importazione in corso: blocco " +
+        numeroBlocco +
+        " di " +
+        totaleBlocchi +
+        ". Righe inserite: " +
+        righeInserite +
+        ". Non chiudere la pagina."
       );
-    } else {
-      await client.auth.signOut();
-      mostraArea(false);
+
+      const esitoBlocco = await invocaImportazione({
+        action: "batch",
+        import_id: importId,
+        rows: blocco
+      });
+
+      righeInserite += Number(
+        esitoBlocco.righe_inserite || 0
+      );
+
+      aggiornaProgresso(
+        (numeroBlocco / totaleBlocchi) * 100
+      );
     }
-  });
+
+    // 3. CHIUSURA IMPORTAZIONE.
+
+    const righeScartate = Math.max(
+      0,
+      totaleRighe - righeInserite
+    );
+
+    const statoFinale =
+      righeScartate > 0
+        ? "COMPLETATA_CON_SCARTI"
+        : "COMPLETATA";
+
+    const chiusura = await invocaImportazione({
+      action: "finish",
+      import_id: importId,
+      imported_rows: righeInserite,
+      skipped_rows: righeScartate,
+      status: statoFinale,
+      notes:
+        "Importazione browser. File: " +
+        fileSelezionato.name +
+        ". Duplicati nel file: " +
+        reportVerifica.duplicati_nel_file +
+        ". Righe non valide: " +
+        reportVerifica.righe_non_valide
+    });
+
+    importazioneCompletata = true;
+
+    mostraRisultato({
+      esito: "IMPORTAZIONE COMPLETATA",
+      importazione_id: importId,
+      file: fileSelezionato.name,
+      righe_totali_file: totaleRighe,
+      righe_inviate: righeVerificate.length,
+      righe_inserite_database: righeInserite,
+      righe_non_importate: righeScartate,
+      stato: chiusura.stato,
+      duplicati_nel_file: reportVerifica.duplicati_nel_file,
+      righe_non_valide: reportVerifica.righe_non_valide
+    });
+
+    mostraMessaggio(
+      "Importazione completata. Righe effettivamente inserite nel database: " +
+      righeInserite +
+      "."
+    );
+
+    aggiornaProgresso(100);
+
+    btnImporta.disabled = true;
+
+  } catch (error) {
+    // Se l'importazione era già iniziata, prova a registrare l'errore.
+
+    if (importId) {
+      try {
+        await invocaImportazione({
+          action: "finish",
+          import_id: importId,
+          imported_rows: righeInserite,
+          skipped_rows: Math.max(
+            0,
+            totaleRighe - righeInserite
+          ),
+          status: "ERRORE",
+          notes: "Importazione interrotta: " + error.message
+        });
+      } catch (erroreChiusura) {
+        console.error(
+          "Errore nella chiusura dell'importazione:",
+          erroreChiusura
+        );
+      }
+    }
+
+    mostraMessaggio(
+      "Importazione non completata: " + error.message +
+      ". Righe inserite prima dell'errore: " +
+      righeInserite +
+      ". Non ripetere subito l'importazione: controlliamo prima il registro.",
+      true
+    );
+
+  } finally {
+    btnCarica.disabled = false;
+    btnVerifica.disabled = false;
+
+    if (!importazioneCompletata) {
+      btnImporta.disabled = !reportVerifica;
+    }
+  }
+});
+
+// --------------------------------------------------
+// USCITA
+// --------------------------------------------------
+
+document.getElementById("logout").addEventListener("click", async () => {
+  await client.auth.signOut();
+
+  resetImportazione();
+
+  fileExcel.value = "";
+
+  mostraArea(false);
+  mostraMessaggio("Sessione terminata.");
+});
+
+// --------------------------------------------------
+// CONTROLLO SESSIONE ESISTENTE
+// --------------------------------------------------
+
+client.auth.getSession().then(async ({ data }) => {
+  if (!data.session) {
+    mostraArea(false);
+    return;
+  }
+
+  const { data: isAdmin, error } =
+    await client.rpc("is_dashboard_admin");
+
+  if (!error && isAdmin === true) {
+    mostraArea(true);
+
+    mostraMessaggio(
+      "Sessione amministratore attiva."
+    );
+  } else {
+    await client.auth.signOut();
+    mostraArea(false);
+  }
+});
 
 </script>
 </body>
