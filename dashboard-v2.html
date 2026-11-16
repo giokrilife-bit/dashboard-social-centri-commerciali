@@ -100,22 +100,247 @@ function fillCentri(values){
   }
 }
   
-  function destroy(id){if(charts[id]){charts[id].destroy();delete charts[id]}}
-function bar(id,labels,values,fn,horizontal=true){destroy(id);charts[id]=new Chart($(id),{type:"bar",data:{labels,datasets:[{data:values,backgroundColor:labels.map((_,i)=>palette[i%palette.length]),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?"y":"x",plugins:{legend:{display:false}},scales:{x:{beginAtZero:true},y:{beginAtZero:true}},onClick:(e,items)=>{if(items.length)fn(items[0].index)}}})}
-function render(d){
-const r=d.riepilogo||{},f=d.riepilogo_frequenza||{};
-$("kpiRegistrazioni").textContent=fmt(r.registrazioni);$("kpiFan").textContent=fmt(r.fan_distinti);$("kpiPost").textContent=fmt(r.post_distinti);
-$("kpiRicorrenti").textContent=fmt(f.fan_su_piu_post);$("kpiTrasversali").textContent=fmt(f["fan_con_più_insegne"]);
-$("kpiCommenti").textContent=fmt(r.commenti_post);$("kpiCondivisioni").textContent=fmt(r.condivisioni_post);$("kpiInsegne").textContent=fmt((d.classifica_insegne||[]).length);
-const months=d.andamento_mensile||[];destroy("mesi");
-charts.mesi=new Chart($("chartMesi"),{type:"line",data:{labels:months.map(x=>x.mese),datasets:[{label:"Registrazioni",data:months.map(x=>+x.registrazioni),borderColor:"#245486",tension:.25},{label:"Fan distinti",data:months.map(x=>+x.fan_distinti),borderColor:"#2c927c",tension:.25}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{position:"bottom"}},onClick:(e,items)=>{if(!items.length)return;const m=months[items[0].index].mese;$("dataInizio").value=m+"-01";const last=new Date(+m.slice(0,4),+m.slice(5,7),0).getDate();$("dataFine").value=m+"-"+String(last).padStart(2,"0");clearPost();load()}}});
-const b=d.classifica_insegne||[];bar("chartInsegne",b.map(x=>x.insegna),b.map(x=>+x.registrazioni),i=>{$("insegna").value=b[i].insegna;clearPost();load()});
-const c=d.distribuzione_contenuti||[];bar("chartContenuti",c.map(x=>x.contenuto),c.map(x=>+x.registrazioni),i=>{$("contenuto").value=c[i].contenuto;clearPost();load()});
-const t=d.distribuzione_tipi||[];bar("chartTipi",t.map(x=>x.tipo),t.map(x=>+x.registrazioni),i=>{$("tipo").value=t[i].tipo;clearPost();load()});
-const q=d.frequenza_fan||[];bar("chartFrequenza",q.map(x=>String(x.numero_post)),q.map(x=>+x.fan),()=>{},false);
-const pairs=d.affinita_insegne||[];$("tabellaAffinita").innerHTML=pairs.length?'<table><thead><tr><th>Insegna 1</th><th>Insegna 2</th><th>Fan condivisi</th></tr></thead><tbody>'+pairs.slice(0,40).map(p=>'<tr><td>'+esc(p.insegna_1)+'</td><td>'+esc(p.insegna_2)+'</td><td>'+fmt(p.fan_condivisi)+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Nessuna affinità disponibile.</div>';
-const posts=d.post||[];if(!posts.length){$("tabellaPost").innerHTML='<div class="empty">Nessun post disponibile per i filtri selezionati.</div>'}else{$("tabellaPost").innerHTML='<table><thead><tr><th>Data</th><th>Centro</th><th>Insegna</th><th>Contenuto</th><th>Dettaglio</th><th>Fan</th><th>Commenti</th><th>Condivisioni</th><th>Facebook</th></tr></thead><tbody>'+posts.map((p,i)=>'<tr class="clickable" data-i="'+i+'"><td>'+esc(p.data_post||"—")+'</td><td>'+esc(p.centro)+'</td><td>'+esc(p.insegna||"—")+'</td><td>'+esc(p.contenuto||"—")+'</td><td>'+esc(p.dettaglio||"—")+'</td><td>'+fmt(p.fan_distinti)+'</td><td>'+(p.commenti==null?"—":fmt(p.commenti))+'</td><td>'+(p.condivisioni==null?"—":fmt(p.condivisioni))+'</td><td><a href="'+esc(p.post_url)+'" target="_blank" rel="noopener noreferrer">Apri post</a></td></tr>').join("")+'</tbody></table>';$("tabellaPost").querySelectorAll("tr[data-i]").forEach(tr=>tr.addEventListener("click",e=>{if(e.target.closest("a"))return;const p=posts[+tr.dataset.i];$("postSelezionato").value=(p.data_post||"")+" · "+(p.insegna||p.centro||"Post");$("postSelezionato").dataset.url=p.post_url;load()}))}
+function destroy(id){
+  if(charts[id]){
+    charts[id].destroy();
+    delete charts[id];
+  }
 }
+
+function bar(id,labels,values,fn,horizontal=true){
+  destroy(id);
+  charts[id]=new Chart($(id),{
+    type:"bar",
+    data:{
+      labels,
+      datasets:[{
+        data:values,
+        backgroundColor:labels.map((_,i)=>palette[i%palette.length]),
+        borderRadius:4
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:horizontal?"y":"x",
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{beginAtZero:true},
+        y:{beginAtZero:true}
+      },
+      onClick:(e,items)=>{
+        if(items.length)fn(items[0].index);
+      }
+    }
+  });
+}
+
+function render(d){
+
+  const r=d.riepilogo||{};
+  const f=d.riepilogo_frequenza||{};
+
+  // KPI principali
+  $("kpiRegistrazioni").textContent=fmt(r.registrazioni);
+  $("kpiFan").textContent=fmt(r.fan_distinti);
+  $("kpiPost").textContent=fmt(r.post_distinti);
+
+  $("kpiRicorrenti").textContent=fmt(f.fan_su_piu_post);
+  $("kpiTrasversali").textContent=fmt(f["fan_con_più_insegne"]);
+
+  $("kpiCommenti").textContent=fmt(r.commenti_post);
+  $("kpiCondivisioni").textContent=fmt(r.condivisioni_post);
+  $("kpiInsegne").textContent=fmt((d.classifica_insegne||[]).length);
+
+  // Classificazione Liker per frequenza
+  const frequenza=d.frequenza_fan||[];
+
+  let occasionali=0;
+  let casuali=0;
+  let assidui=0;
+
+  frequenza.forEach(x=>{
+    const numeroPost=Number(x.numero_post);
+    const numeroFan=Number(x.fan);
+
+    if(numeroPost===1){
+      occasionali+=numeroFan;
+    }else if(numeroPost>=2&&numeroPost<=4){
+      casuali+=numeroFan;
+    }else if(numeroPost>=5){
+      assidui+=numeroFan;
+    }
+  });
+
+  $("kpiOccasionali").textContent=fmt(occasionali);
+  $("kpiCasuali").textContent=fmt(casuali);
+  $("kpiAssidui").textContent=fmt(assidui);
+
+  // Andamento mensile
+  const months=d.andamento_mensile||[];
+  destroy("mesi");
+
+  charts.mesi=new Chart($("chartMesi"),{
+    type:"line",
+    data:{
+      labels:months.map(x=>x.mese),
+      datasets:[
+        {
+          label:"Registrazioni",
+          data:months.map(x=>+x.registrazioni),
+          borderColor:"#245486",
+          tension:.25
+        },
+        {
+          label:"Fan distinti",
+          data:months.map(x=>+x.fan_distinti),
+          borderColor:"#2c927c",
+          tension:.25
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom"}},
+      onClick:(e,items)=>{
+        if(!items.length)return;
+
+        const m=months[items[0].index].mese;
+
+        $("dataInizio").value=m+"-01";
+
+        const last=new Date(
+          +m.slice(0,4),
+          +m.slice(5,7),
+          0
+        ).getDate();
+
+        $("dataFine").value=m+"-"+String(last).padStart(2,"0");
+
+        clearPost();
+        load();
+      }
+    }
+  });
+
+  // Classifica insegne
+  const b=d.classifica_insegne||[];
+
+  bar(
+    "chartInsegne",
+    b.map(x=>x.insegna),
+    b.map(x=>+x.registrazioni),
+    i=>{
+      $("insegna").value=b[i].insegna;
+      clearPost();
+      load();
+    }
+  );
+
+  // Distribuzione contenuti
+  const c=d.distribuzione_contenuti||[];
+
+  bar(
+    "chartContenuti",
+    c.map(x=>x.contenuto),
+    c.map(x=>+x.registrazioni),
+    i=>{
+      $("contenuto").value=c[i].contenuto;
+      clearPost();
+      load();
+    }
+  );
+
+  // Distribuzione tipi
+  const t=d.distribuzione_tipi||[];
+
+  bar(
+    "chartTipi",
+    t.map(x=>x.tipo),
+    t.map(x=>+x.registrazioni),
+    i=>{
+      $("tipo").value=t[i].tipo;
+      clearPost();
+      load();
+    }
+  );
+
+  // Frequenza Liker
+  const q=d.frequenza_fan||[];
+
+  bar(
+    "chartFrequenza",
+    q.map(x=>String(x.numero_post)),
+    q.map(x=>+x.fan),
+    ()=>{},
+    false
+  );
+
+  // Affinità tra insegne
+  const pairs=d.affinita_insegne||[];
+
+  $("tabellaAffinita").innerHTML=pairs.length
+    ?'<table><thead><tr><th>Insegna 1</th><th>Insegna 2</th><th>Fan condivisi</th></tr></thead><tbody>'+
+      pairs.slice(0,40).map(p=>
+        '<tr><td>'+esc(p.insegna_1)+'</td><td>'+
+        esc(p.insegna_2)+'</td><td>'+
+        fmt(p.fan_condivisi)+'</td></tr>'
+      ).join("")+
+      '</tbody></table>'
+    :'<div class="empty">Nessuna affinità disponibile.</div>';
+
+  // Tabella post
+  const posts=d.post||[];
+
+  if(!posts.length){
+
+    $("tabellaPost").innerHTML=
+      '<div class="empty">Nessun post disponibile per i filtri selezionati.</div>';
+
+  }else{
+
+    $("tabellaPost").innerHTML=
+      '<table><thead><tr>'+
+      '<th>Data</th><th>Centro</th><th>Insegna</th>'+
+      '<th>Contenuto</th><th>Dettaglio</th><th>Fan</th>'+
+      '<th>Commenti</th><th>Condivisioni</th><th>Facebook</th>'+
+      '</tr></thead><tbody>'+
+
+      posts.map((p,i)=>
+        '<tr class="clickable" data-i="'+i+'">'+
+        '<td>'+esc(p.data_post||"—")+'</td>'+
+        '<td>'+esc(p.centro)+'</td>'+
+        '<td>'+esc(p.insegna||"—")+'</td>'+
+        '<td>'+esc(p.contenuto||"—")+'</td>'+
+        '<td>'+esc(p.dettaglio||"—")+'</td>'+
+        '<td>'+fmt(p.fan_distinti)+'</td>'+
+        '<td>'+(p.commenti==null?"—":fmt(p.commenti))+'</td>'+
+        '<td>'+(p.condivisioni==null?"—":fmt(p.condivisioni))+'</td>'+
+        '<td><a href="'+esc(p.post_url)+'" target="_blank" rel="noopener noreferrer">Apri post</a></td>'+
+        '</tr>'
+      ).join("")+
+
+      '</tbody></table>';
+
+    $("tabellaPost").querySelectorAll("tr[data-i]").forEach(tr=>
+      tr.addEventListener("click",e=>{
+        if(e.target.closest("a"))return;
+
+        const p=posts[+tr.dataset.i];
+
+        $("postSelezionato").value=
+          (p.data_post||"")+" · "+(p.insegna||p.centro||"Post");
+
+        $("postSelezionato").dataset.url=p.post_url;
+
+        load();
+      })
+    );
+  }
+}
+
 
 async function load(){
   if(busy)return;
