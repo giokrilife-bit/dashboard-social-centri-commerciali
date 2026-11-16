@@ -116,6 +116,7 @@ const q=d.frequenza_fan||[];bar("chartFrequenza",q.map(x=>String(x.numero_post))
 const pairs=d.affinita_insegne||[];$("tabellaAffinita").innerHTML=pairs.length?'<table><thead><tr><th>Insegna 1</th><th>Insegna 2</th><th>Fan condivisi</th></tr></thead><tbody>'+pairs.slice(0,40).map(p=>'<tr><td>'+esc(p.insegna_1)+'</td><td>'+esc(p.insegna_2)+'</td><td>'+fmt(p.fan_condivisi)+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Nessuna affinità disponibile.</div>';
 const posts=d.post||[];if(!posts.length){$("tabellaPost").innerHTML='<div class="empty">Nessun post disponibile per i filtri selezionati.</div>'}else{$("tabellaPost").innerHTML='<table><thead><tr><th>Data</th><th>Centro</th><th>Insegna</th><th>Contenuto</th><th>Dettaglio</th><th>Fan</th><th>Commenti</th><th>Condivisioni</th><th>Facebook</th></tr></thead><tbody>'+posts.map((p,i)=>'<tr class="clickable" data-i="'+i+'"><td>'+esc(p.data_post||"—")+'</td><td>'+esc(p.centro)+'</td><td>'+esc(p.insegna||"—")+'</td><td>'+esc(p.contenuto||"—")+'</td><td>'+esc(p.dettaglio||"—")+'</td><td>'+fmt(p.fan_distinti)+'</td><td>'+(p.commenti==null?"—":fmt(p.commenti))+'</td><td>'+(p.condivisioni==null?"—":fmt(p.condivisioni))+'</td><td><a href="'+esc(p.post_url)+'" target="_blank" rel="noopener noreferrer">Apri post</a></td></tr>').join("")+'</tbody></table>';$("tabellaPost").querySelectorAll("tr[data-i]").forEach(tr=>tr.addEventListener("click",e=>{if(e.target.closest("a"))return;const p=posts[+tr.dataset.i];$("postSelezionato").value=(p.data_post||"")+" · "+(p.insegna||p.centro||"Post");$("postSelezionato").dataset.url=p.post_url;load()}))}
 }
+
 async function load(){
   if(busy)return;
 
@@ -160,41 +161,6 @@ async function load(){
   }
 }
 
-  busy=true;
-  $("aggiorna").disabled=true;
-  status("Aggiornamento dati...");
-
-  try{
-    const {data,error}=await sb.rpc("get_social_dashboard_v2",args());
-
-    if(error)throw error;
-    if(!data)throw Error("Nessun dato ricevuto.");
-
-    fillCentri(data.centri||[]);
-
-    fillSelect("insegna",data.filtri_disponibili?.insegne||[],"Tutte le insegne");
-    fillSelect("tipo",data.filtri_disponibili?.tipi||[],"Tutti i tipi");
-    fillSelect("contenuto",data.filtri_disponibili?.contenuti||[],"Tutti i contenuti");
-
-    render(data);
-
-    const r=data.riepilogo||{};
-
-    status(
-      "Dati aggiornati · "+
-      (r.prima_data||"—")+" – "+
-      (r.ultima_data||"—")+" · "+
-      fmt(r.registrazioni)+" registrazioni."
-    );
-
-  }catch(e){
-    console.error(e);
-    status("Errore nel caricamento: "+(e.message||e),true);
-  }finally{
-    busy=false;
-    $("aggiorna").disabled=false;
-  }
-}
 async function init(){
   $("centro").innerHTML='<option value="le-centurie">Le Centurie</option>';
   $("centro").value="le-centurie";
