@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Social Centri Commerciali - V2</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root{--navy:#183b63;--blue:#245486;--ink:#243247;--muted:#64748b;--line:#e5eaf0;--bg:#f3f5f8}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:25px 20px}.inner,main{max-width:1400px;margin:auto}
+header h1{margin:0 0 7px;font-size:26px}header p{margin:0;color:#dce7f3;line-height:1.5}
+main{padding:22px 18px 42px}.panel,.metric{background:#fff;border-radius:12px;padding:18px;box-shadow:0 3px 14px rgba(0,0,0,.045)}
+.panel{margin-bottom:18px}.section-title{font-size:18px;color:var(--navy);margin:0 0 15px}
+.filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:13px}
+label{display:block;font-size:12px;font-weight:bold;color:#526174;margin:0 0 6px}
+select,input,button{width:100%;padding:10px;border:1px solid #d5dce5;border-radius:7px;background:#fff;color:var(--ink);font-size:14px;min-height:40px}
+button{cursor:pointer;font-weight:bold}button.primary{background:var(--navy);color:#fff;border:0}button:disabled{opacity:.6;cursor:wait}
+.actions{display:flex;gap:10px;margin-top:14px}.actions button{width:auto;min-width:150px}
+.status{font-size:13px;color:var(--muted);margin:12px 0 16px;min-height:18px}.error{color:#b42318}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:18px}
+.metric small{font-size:12px;color:var(--muted);line-height:1.4}.metric strong{display:block;font-size:27px;color:var(--navy);margin-top:8px}
+.metric .hint{display:block;font-size:11px;color:#8491a1;margin-top:5px;line-height:1.35}
+.charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.chart-wrap{height:290px;position:relative}.chart-help{font-size:11px;color:#8793a3;margin:10px 0 0}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 9px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;color:#526174;white-space:nowrap}tr.clickable{cursor:pointer}tr.clickable:hover{background:#f0f5fa}
+a{color:#245486;font-weight:bold;text-decoration:none}a:hover{text-decoration:underline}
+.notice{background:#eaf0f7;border-radius:8px;padding:13px 15px;font-size:12px;color:#42536a;line-height:1.6}
+.empty{padding:16px 0;color:var(--muted);font-size:13px}footer{text-align:center;color:#8793a3;font-size:12px;padding:18px}
+@media(max-width:950px){.filters{grid-template-columns:repeat(3,minmax(0,1fr))}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){header h1{font-size:22px}.filters,.charts{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-wrap{height:250px}main{padding:14px 10px 28px}.actions{flex-wrap:wrap}.actions button{flex:1}}
+</style>
+</head>
+<body>
+<header><div class="inner"><h1>Dashboard Social Centri Commerciali</h1><p>Analisi integrata di fan, contenuti, insegne, frequenza e post Facebook.</p></div></header>
+<main>
+<section class="panel">
+<h2 class="section-title">Filtri di analisi condivisi</h2>
+<div class="filters">
+<div><label for="centro">Centro commerciale</label><select id="centro"><option value="">Tutti i centri</option></select></div>
+<div><label for="dataInizio">Data iniziale</label><input type="date" id="dataInizio"></div>
+<div><label for="dataFine">Data finale</label><input type="date" id="dataFine"></div>
+<div><label for="insegna">Insegna</label><select id="insegna"><option value="">Tutte le insegne</option></select></div>
+<div><label for="tipo">Tipo</label><select id="tipo"><option value="">Tutti i tipi</option></select></div>
+<div><label for="contenuto">Contenuto</label><select id="contenuto"><option value="">Tutti i contenuti</option></select></div>
+<div style="grid-column:span 2"><label for="postSelezionato">Post selezionato</label><input id="postSelezionato" readonly placeholder="Nessun post selezionato"></div>
+</div>
+<div class="actions"><button class="primary" id="aggiorna">Aggiorna analisi</button><button id="azzera">Azzera filtri</button></div>
+</section>
+<p id="stato" class="status" aria-live="polite">Caricamento dati...</p>
+<section class="metrics">
+<div class="metric"><small>Registrazioni</small><strong id="kpiRegistrazioni">—</strong><span class="hint">Righe di interazione nel perimetro selezionato</span></div>
+<div class="metric"><small>Fan distinti</small><strong id="kpiFan">—</strong><span class="hint">Fan identificati nel perimetro selezionato</span></div>
+<div class="metric"><small>Post distinti</small><strong id="kpiPost">—</strong><span class="hint">URL distinti per centro</span></div>
+<div class="metric"><small>Fan su più post</small><strong id="kpiRicorrenti">—</strong><span class="hint">Almeno due post nel periodo filtrato</span></div>
+<div class="metric"><small>Fan associati a più insegne</small><strong id="kpiTrasversali">—</strong><span class="hint">Associazioni social, non acquisti o visite</span></div>
+<div class="metric"><small>Commenti rilevati</small><strong id="kpiCommenti">—</strong><span class="hint">Conteggiati una sola volta per post</span></div>
+<div class="metric"><small>Condivisioni rilevate</small><strong id="kpiCondivisioni">—</strong><span class="hint">Conteggiate una sola volta per post</span></div>
+<div class="metric"><small>Insegne commerciali</small><strong id="kpiInsegne">—</strong><span class="hint">Esclusi nome centro e MIX</span></div>
+</section>
+<section class="charts">
+<div class="panel"><h2 class="section-title">Andamento mensile</h2><div class="chart-wrap"><canvas id="chartMesi"></canvas></div><p class="chart-help">Seleziona un mese per applicare il filtro temporale a tutta la dashboard.</p></div>
+<div class="panel"><h2 class="section-title">Classifica insegne</h2><div class="chart-wrap"><canvas id="chartInsegne"></canvas></div><p class="chart-help">Seleziona un'insegna per aggiornare tutti gli indicatori.</p></div>
+<div class="panel"><h2 class="section-title">Distribuzione per contenuto</h2><div class="chart-wrap"><canvas id="chartContenuti"></canvas></div><p class="chart-help">Il contenuto classifica il post, non misura l'engagement.</p></div>
+<div class="panel"><h2 class="section-title">Distribuzione per tipo</h2><div class="chart-wrap"><canvas id="chartTipi"></canvas></div><p class="chart-help">Seleziona una categoria per filtrare l'intera analisi.</p></div>
+<div class="panel"><h2 class="section-title">Frequenza dei fan per numero di post</h2><div class="chart-wrap"><canvas id="chartFrequenza"></canvas></div><p class="chart-help">Numero di post distinti associati a ciascun fan nel periodo filtrato.</p></div>
+<div class="panel"><h2 class="section-title">Affinità tra insegne</h2><div class="table-wrap" id="tabellaAffinita"></div><p class="chart-help">Fan presenti nei dati di entrambe le insegne; non implica acquisti o passaggi fisici.</p></div>
+</section>
+<section class="panel"><h2 class="section-title">Post Facebook nel perimetro selezionato</h2><p class="status">Seleziona una riga per filtrare la dashboard sul singolo post. Il link apre Facebook in una nuova scheda.</p><div class="table-wrap" id="tabellaPost"></div></section>
+<div class="notice"><strong>Nota metodologica</strong><br>Le registrazioni rappresentano associazioni fan-post nell'archivio, non impression, copertura, visite fisiche o acquisti. I fan distinti sono conteggiati nel perimetro selezionato e non sono sommabili tra categorie. Commenti e condivisioni sono conteggiati una sola volta per post; i valori non disponibili restano distinti da zero. I fan su più post indicano ricorrenza nel periodo filtrato, non necessariamente nuovi o abituali. Le affinità tra insegne rappresentano sovrapposizioni di fan nei dati social.</div>
+</main>
+<footer>Dashboard Social Centri Commerciali · Versione 2</footer>
+<script>
+const SUPABASE_URL="https://gjeitedncggvvovifuej.supabase.co";
+const SUPABASE_KEY="sb_publishable_Oww_JhJicwb8whCwYZjJJw_vtcG720X";
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const palette=["#245486","#e28a36","#2c927c","#9b6ac4","#c65362","#6b829d","#b08a35","#4d8290","#8b6f9f","#75935b"];
+const charts={};let busy=false;
+const $=id=>document.getElementById(id),fmt=v=>Number(v||0).toLocaleString("it-IT");
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function status(s,err=false){$("stato").textContent=s;$("stato").className=err?"status error":"status"}
+function clearPost(){$("postSelezionato").value="";delete $("postSelezionato").dataset.url}
+function args(){return {p_centro_slug:$("centro").value||null,p_data_inizio:$("dataInizio").value||null,p_data_fine:$("dataFine").value||null,p_insegna:$("insegna").value||null,p_tipo:$("tipo").value||null,p_contenuto:$("contenuto").value||null,p_post_url:$("postSelezionato").dataset.url||null}}
+function fillSelect(id,values,label){const s=$(id),old=s.value;s.innerHTML="";const o=document.createElement("option");o.value="";o.textContent=label;s.appendChild(o);(values||[]).forEach(v=>{const x=document.createElement("option");x.value=v;x.textContent=v;s.appendChild(x)});if((values||[]).includes(old))s.value=old}
+function destroy(id){if(charts[id]){charts[id].destroy();delete charts[id]}}
+function bar(id,labels,values,fn,horizontal=true){destroy(id);charts[id]=new Chart($(id),{type:"bar",data:{labels,datasets:[{data:values,backgroundColor:labels.map((_,i)=>palette[i%palette.length]),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?"y":"x",plugins:{legend:{display:false}},scales:{x:{beginAtZero:true},y:{beginAtZero:true}},onClick:(e,items)=>{if(items.length)fn(items[0].index)}}})}
+function render(d){
+const r=d.riepilogo||{},f=d.riepilogo_frequenza||{};
+$("kpiRegistrazioni").textContent=fmt(r.registrazioni);$("kpiFan").textContent=fmt(r.fan_distinti);$("kpiPost").textContent=fmt(r.post_distinti);
+$("kpiRicorrenti").textContent=fmt(f.fan_su_piu_post);$("kpiTrasversali").textContent=fmt(f["fan_con_più_insegne"]);
+$("kpiCommenti").textContent=fmt(r.commenti_post);$("kpiCondivisioni").textContent=fmt(r.condivisioni_post);$("kpiInsegne").textContent=fmt((d.classifica_insegne||[]).length);
+const months=d.andamento_mensile||[];destroy("mesi");
+charts.mesi=new Chart($("chartMesi"),{type:"line",data:{labels:months.map(x=>x.mese),datasets:[{label:"Registrazioni",data:months.map(x=>+x.registrazioni),borderColor:"#245486",tension:.25},{label:"Fan distinti",data:months.map(x=>+x.fan_distinti),borderColor:"#2c927c",tension:.25}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{position:"bottom"}},onClick:(e,items)=>{if(!items.length)return;const m=months[items[0].index].mese;$("dataInizio").value=m+"-01";const last=new Date(+m.slice(0,4),+m.slice(5,7),0).getDate();$("dataFine").value=m+"-"+String(last).padStart(2,"0");clearPost();load()}}});
+const b=d.classifica_insegne||[];bar("chartInsegne",b.map(x=>x.insegna),b.map(x=>+x.registrazioni),i=>{$("insegna").value=b[i].insegna;clearPost();load()});
+const c=d.distribuzione_contenuti||[];bar("chartContenuti",c.map(x=>x.contenuto),c.map(x=>+x.registrazioni),i=>{$("contenuto").value=c[i].contenuto;clearPost();load()});
+const t=d.distribuzione_tipi||[];bar("chartTipi",t.map(x=>x.tipo),t.map(x=>+x.registrazioni),i=>{$("tipo").value=t[i].tipo;clearPost();load()});
+const q=d.frequenza_fan||[];bar("chartFrequenza",q.map(x=>String(x.numero_post)),q.map(x=>+x.fan),()=>{},false);
+const pairs=d.affinita_insegne||[];$("tabellaAffinita").innerHTML=pairs.length?'<table><thead><tr><th>Insegna 1</th><th>Insegna 2</th><th>Fan condivisi</th></tr></thead><tbody>'+pairs.slice(0,40).map(p=>'<tr><td>'+esc(p.insegna_1)+'</td><td>'+esc(p.insegna_2)+'</td><td>'+fmt(p.fan_condivisi)+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Nessuna affinità disponibile.</div>';
+const posts=d.post||[];if(!posts.length){$("tabellaPost").innerHTML='<div class="empty">Nessun post disponibile per i filtri selezionati.</div>'}else{$("tabellaPost").innerHTML='<table><thead><tr><th>Data</th><th>Centro</th><th>Insegna</th><th>Contenuto</th><th>Dettaglio</th><th>Fan</th><th>Commenti</th><th>Condivisioni</th><th>Facebook</th></tr></thead><tbody>'+posts.map((p,i)=>'<tr class="clickable" data-i="'+i+'"><td>'+esc(p.data_post||"—")+'</td><td>'+esc(p.centro)+'</td><td>'+esc(p.insegna||"—")+'</td><td>'+esc(p.contenuto||"—")+'</td><td>'+esc(p.dettaglio||"—")+'</td><td>'+fmt(p.fan_distinti)+'</td><td>'+(p.commenti==null?"—":fmt(p.commenti))+'</td><td>'+(p.condivisioni==null?"—":fmt(p.condivisioni))+'</td><td><a href="'+esc(p.post_url)+'" target="_blank" rel="noopener noreferrer">Apri post</a></td></tr>').join("")+'</tbody></table>';$("tabellaPost").querySelectorAll("tr[data-i]").forEach(tr=>tr.addEventListener("click",e=>{if(e.target.closest("a"))return;const p=posts[+tr.dataset.i];$("postSelezionato").value=(p.data_post||"")+" · "+(p.insegna||p.centro||"Post");$("postSelezionato").dataset.url=p.post_url;load()}))}
+}
+async function load(){if(busy)return;if($("dataInizio").value&&$("dataFine").value&&$("dataInizio").value>$("dataFine").value){status("La data iniziale non può essere successiva alla data finale.",true);return}busy=true;$("aggiorna").disabled=true;status("Aggiornamento dati...");try{const {data,error}=await sb.rpc("get_social_dashboard_v2",args());if(error)throw error;if(!data)throw Error("Nessun dato ricevuto.");fillSelect("insegna",data.filtri_disponibili?.insegne||[],"Tutte le insegne");fillSelect("tipo",data.filtri_disponibili?.tipi||[],"Tutti i tipi");fillSelect("contenuto",data.filtri_disponibili?.contenuti||[],"Tutti i contenuti");render(data);const r=data.riepilogo||{};status("Dati aggiornati · "+(r.prima_data||"—")+" – "+(r.ultima_data||"—")+" · "+fmt(r.registrazioni)+" registrazioni.")}catch(e){console.error(e);status("Errore nel caricamento: "+(e.message||e),true)}finally{busy=false;$("aggiorna").disabled=false}}
+async function init(){try{const {data,error}=await sb.rpc("get_social_dashboard_v2",{p_centro_slug:null,p_data_inizio:null,p_data_fine:null,p_insegna:null,p_tipo:null,p_contenuto:null,p_post_url:null});if(error)throw error;(data.centri||[]).forEach(c=>{const o=document.createElement("option");o.value=c.slug;o.textContent=c.nome;$("centro").appendChild(o)});await load()}catch(e){console.error(e);status("Errore iniziale: "+(e.message||e),true)}}
+$("aggiorna").addEventListener("click",load);
+$("azzera").addEventListener("click",()=>{["centro","dataInizio","dataFine","insegna","tipo","contenuto"].forEach(id=>$(id).value="");clearPost();load()});
+["centro","dataInizio","dataFine","insegna","tipo","contenuto"].forEach(id=>$(id).addEventListener("change",()=>{clearPost();load()}));
+init();
+</script>
+</body></html>
