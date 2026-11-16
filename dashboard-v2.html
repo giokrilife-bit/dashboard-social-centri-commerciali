@@ -83,7 +83,24 @@ function status(s,err=false){$("stato").textContent=s;$("stato").className=err?"
 function clearPost(){$("postSelezionato").value="";delete $("postSelezionato").dataset.url}
 function args(){return {p_centro_slug:$("centro").value||null,p_data_inizio:$("dataInizio").value||null,p_data_fine:$("dataFine").value||null,p_insegna:$("insegna").value||null,p_tipo:$("tipo").value||null,p_contenuto:$("contenuto").value||null,p_post_url:$("postSelezionato").dataset.url||null}}
 function fillSelect(id,values,label){const s=$(id),old=s.value;s.innerHTML="";const o=document.createElement("option");o.value="";o.textContent=label;s.appendChild(o);(values||[]).forEach(v=>{const x=document.createElement("option");x.value=v;x.textContent=v;s.appendChild(x)});if((values||[]).includes(old))s.value=old}
-function destroy(id){if(charts[id]){charts[id].destroy();delete charts[id]}}
+function fillCentri(values){
+  const s=$("centro");
+  const old=s.value;
+  s.innerHTML='<option value="">Tutti i centri</option>';
+  (values||[]).forEach(c=>{
+    const o=document.createElement("option");
+    o.value=c.slug;
+    o.textContent=c.nome;
+    s.appendChild(o);
+  });
+  if((values||[]).some(c=>c.slug===old)){
+    s.value=old;
+  }else{
+    s.value="le-centurie";
+  }
+}
+  
+  function destroy(id){if(charts[id]){charts[id].destroy();delete charts[id]}}
 function bar(id,labels,values,fn,horizontal=true){destroy(id);charts[id]=new Chart($(id),{type:"bar",data:{labels,datasets:[{data:values,backgroundColor:labels.map((_,i)=>palette[i%palette.length]),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?"y":"x",plugins:{legend:{display:false}},scales:{x:{beginAtZero:true},y:{beginAtZero:true}},onClick:(e,items)=>{if(items.length)fn(items[0].index)}}})}
 function render(d){
 const r=d.riepilogo||{},f=d.riepilogo_frequenza||{};
@@ -99,11 +116,117 @@ const q=d.frequenza_fan||[];bar("chartFrequenza",q.map(x=>String(x.numero_post))
 const pairs=d.affinita_insegne||[];$("tabellaAffinita").innerHTML=pairs.length?'<table><thead><tr><th>Insegna 1</th><th>Insegna 2</th><th>Fan condivisi</th></tr></thead><tbody>'+pairs.slice(0,40).map(p=>'<tr><td>'+esc(p.insegna_1)+'</td><td>'+esc(p.insegna_2)+'</td><td>'+fmt(p.fan_condivisi)+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Nessuna affinità disponibile.</div>';
 const posts=d.post||[];if(!posts.length){$("tabellaPost").innerHTML='<div class="empty">Nessun post disponibile per i filtri selezionati.</div>'}else{$("tabellaPost").innerHTML='<table><thead><tr><th>Data</th><th>Centro</th><th>Insegna</th><th>Contenuto</th><th>Dettaglio</th><th>Fan</th><th>Commenti</th><th>Condivisioni</th><th>Facebook</th></tr></thead><tbody>'+posts.map((p,i)=>'<tr class="clickable" data-i="'+i+'"><td>'+esc(p.data_post||"—")+'</td><td>'+esc(p.centro)+'</td><td>'+esc(p.insegna||"—")+'</td><td>'+esc(p.contenuto||"—")+'</td><td>'+esc(p.dettaglio||"—")+'</td><td>'+fmt(p.fan_distinti)+'</td><td>'+(p.commenti==null?"—":fmt(p.commenti))+'</td><td>'+(p.condivisioni==null?"—":fmt(p.condivisioni))+'</td><td><a href="'+esc(p.post_url)+'" target="_blank" rel="noopener noreferrer">Apri post</a></td></tr>').join("")+'</tbody></table>';$("tabellaPost").querySelectorAll("tr[data-i]").forEach(tr=>tr.addEventListener("click",e=>{if(e.target.closest("a"))return;const p=posts[+tr.dataset.i];$("postSelezionato").value=(p.data_post||"")+" · "+(p.insegna||p.centro||"Post");$("postSelezionato").dataset.url=p.post_url;load()}))}
 }
-async function load(){if(busy)return;if($("dataInizio").value&&$("dataFine").value&&$("dataInizio").value>$("dataFine").value){status("La data iniziale non può essere successiva alla data finale.",true);return}busy=true;$("aggiorna").disabled=true;status("Aggiornamento dati...");try{const {data,error}=await sb.rpc("get_social_dashboard_v2",args());if(error)throw error;if(!data)throw Error("Nessun dato ricevuto.");fillSelect("insegna",data.filtri_disponibili?.insegne||[],"Tutte le insegne");fillSelect("tipo",data.filtri_disponibili?.tipi||[],"Tutti i tipi");fillSelect("contenuto",data.filtri_disponibili?.contenuti||[],"Tutti i contenuti");render(data);const r=data.riepilogo||{};status("Dati aggiornati · "+(r.prima_data||"—")+" – "+(r.ultima_data||"—")+" · "+fmt(r.registrazioni)+" registrazioni.")}catch(e){console.error(e);status("Errore nel caricamento: "+(e.message||e),true)}finally{busy=false;$("aggiorna").disabled=false}}
-async function init(){try{const {data,error}=await sb.rpc("get_social_dashboard_v2",{p_centro_slug:null,p_data_inizio:null,p_data_fine:null,p_insegna:null,p_tipo:null,p_contenuto:null,p_post_url:null});if(error)throw error;(data.centri||[]).forEach(c=>{const o=document.createElement("option");o.value=c.slug;o.textContent=c.nome;$("centro").appendChild(o)});await load()}catch(e){console.error(e);status("Errore iniziale: "+(e.message||e),true)}}
+async function load(){
+  if(busy)return;
+
+  if($("dataInizio").value&&$("dataFine").value&&$("dataInizio").value>$("dataFine").value){
+    status("La data iniziale non può essere successiva alla data finale.",true);
+    return;
+  }
+
+  busy=true;
+  $("aggiorna").disabled=true;
+  status("Aggiornamento dati...");
+
+  try{
+    const {data,error}=await sb.rpc("get_social_dashboard_v2",args());
+
+    if(error)throw error;
+    if(!data)throw Error("Nessun dato ricevuto.");
+
+    fillCentri(data.centri||[]);
+
+    fillSelect("insegna",data.filtri_disponibili?.insegne||[],"Tutte le insegne");
+    fillSelect("tipo",data.filtri_disponibili?.tipi||[],"Tutti i tipi");
+    fillSelect("contenuto",data.filtri_disponibili?.contenuti||[],"Tutti i contenuti");
+
+    render(data);
+
+    const r=data.riepilogo||{};
+
+    status(
+      "Dati aggiornati · "+
+      (r.prima_data||"—")+" – "+
+      (r.ultima_data||"—")+" · "+
+      fmt(r.registrazioni)+" registrazioni."
+    );
+
+  }catch(e){
+    console.error(e);
+    status("Errore nel caricamento: "+(e.message||e),true);
+  }finally{
+    busy=false;
+    $("aggiorna").disabled=false;
+  }
+}
+
+  busy=true;
+  $("aggiorna").disabled=true;
+  status("Aggiornamento dati...");
+
+  try{
+    const {data,error}=await sb.rpc("get_social_dashboard_v2",args());
+
+    if(error)throw error;
+    if(!data)throw Error("Nessun dato ricevuto.");
+
+    fillCentri(data.centri||[]);
+
+    fillSelect("insegna",data.filtri_disponibili?.insegne||[],"Tutte le insegne");
+    fillSelect("tipo",data.filtri_disponibili?.tipi||[],"Tutti i tipi");
+    fillSelect("contenuto",data.filtri_disponibili?.contenuti||[],"Tutti i contenuti");
+
+    render(data);
+
+    const r=data.riepilogo||{};
+
+    status(
+      "Dati aggiornati · "+
+      (r.prima_data||"—")+" – "+
+      (r.ultima_data||"—")+" · "+
+      fmt(r.registrazioni)+" registrazioni."
+    );
+
+  }catch(e){
+    console.error(e);
+    status("Errore nel caricamento: "+(e.message||e),true);
+  }finally{
+    busy=false;
+    $("aggiorna").disabled=false;
+  }
+}
+async function init(){
+  $("centro").innerHTML='<option value="le-centurie">Le Centurie</option>';
+  $("centro").value="le-centurie";
+
+  $("dataInizio").value="2026-10-16";
+  $("dataFine").value="2026-11-07";
+
+  await load();
+}
+
 $("aggiorna").addEventListener("click",load);
-$("azzera").addEventListener("click",()=>{["centro","dataInizio","dataFine","insegna","tipo","contenuto"].forEach(id=>$(id).value="");clearPost();load()});
-["centro","dataInizio","dataFine","insegna","tipo","contenuto"].forEach(id=>$(id).addEventListener("change",()=>{clearPost();load()}));
+
+$("azzera").addEventListener("click",()=>{
+  $("centro").value="le-centurie";
+  $("dataInizio").value="2026-10-16";
+  $("dataFine").value="2026-11-07";
+
+  $("insegna").value="";
+  $("tipo").value="";
+  $("contenuto").value="";
+
+  clearPost();
+  load();
+});
+
+["centro","dataInizio","dataFine","insegna","tipo","contenuto"].forEach(id=>
+  $(id).addEventListener("change",()=>{
+    clearPost();
+    load();
+  })
+);
+
 init();
 </script>
 </body></html>
