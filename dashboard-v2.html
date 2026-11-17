@@ -112,8 +112,12 @@ function destroy(id){
   }
 }
 
-function bar(id,labels,values,fn,horizontal=true){
+
+function bar(id,labels,values,fn,horizontal=true,percentages=null){
   destroy(id);
+
+  const totale=values.reduce((sum,v)=>sum+(Number(v)||0),0);
+
   charts[id]=new Chart($(id),{
     type:"bar",
     data:{
@@ -128,7 +132,28 @@ function bar(id,labels,values,fn,horizontal=true){
       responsive:true,
       maintainAspectRatio:false,
       indexAxis:horizontal?"y":"x",
-      plugins:{legend:{display:false}},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            label:(context)=>{
+              const valore=Number(context.raw)||0;
+              const percentuale=percentages
+                ? percentages[context.dataIndex]
+                : totale>0?(valore/totale*100):0;
+
+              return " "+fmt(valore)+" ("+
+                percentuale.toLocaleString("it-IT",{
+                  minimumFractionDigits:1,
+                  maximumFractionDigits:1
+                })+"%)";
+            }
+          }
+        },
+        datalabels:{
+          display:false
+        }
+      },
       scales:{
         x:{beginAtZero:true},
         y:{beginAtZero:true}
@@ -139,6 +164,7 @@ function bar(id,labels,values,fn,horizontal=true){
     }
   });
 }
+
 
 function render(d){
 
@@ -177,9 +203,25 @@ function render(d){
     }
   });
 
-  $("kpiOccasionali").textContent=fmt(occasionali);
-  $("kpiCasuali").textContent=fmt(casuali);
-  $("kpiAssidui").textContent=fmt(assidui);
+  
+const totaleFan=Number(r.fan_distinti)||0;
+
+function valorePercentuale(valore){
+  const percentuale=totaleFan>0
+    ? valore/totaleFan*100
+    : 0;
+
+  return fmt(valore)+" ("+
+    percentuale.toLocaleString("it-IT",{
+      minimumFractionDigits:1,
+      maximumFractionDigits:1
+    })+"%)";
+}
+
+$("kpiOccasionali").textContent=valorePercentuale(occasionali);
+$("kpiCasuali").textContent=valorePercentuale(casuali);
+$("kpiAssidui").textContent=valorePercentuale(assidui);
+
 
   // Andamento mensile
   const months=d.andamento_mensile||[];
