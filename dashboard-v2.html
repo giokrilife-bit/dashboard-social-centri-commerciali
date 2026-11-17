@@ -112,11 +112,57 @@ function destroy(id){
   }
 }
 
+const barPercentLabels = {
+  id:"barPercentLabels",
 
-function bar(id,labels,values,fn,horizontal=true,percentages=null){
+  afterDatasetsDraw(chart){
+    const values=chart.data.datasets[0].data||[];
+    const totale=values.reduce((s,v)=>s+(Number(v)||0),0);
+
+    if(!totale)return;
+
+    const ctx=chart.ctx;
+    const horizontal=chart.options.indexAxis==="y";
+
+    ctx.save();
+    ctx.font="bold 11px Arial";
+    ctx.fillStyle="#333333";
+    ctx.textBaseline="middle";
+
+    const meta=chart.getDatasetMeta(0);
+
+    meta.data.forEach((element,i)=>{
+      const valore=Number(values[i])||0;
+      const percentuale=valore/totale*100;
+
+      const testo=fmt(valore)+" · "+
+        percentuale.toLocaleString("it-IT",{
+          minimumFractionDigits:1,
+          maximumFractionDigits:1
+        })+"%";
+
+      if(horizontal){
+        ctx.textAlign="left";
+        ctx.fillText(testo,element.x+7,element.y);
+      }else{
+        ctx.textAlign="center";
+        ctx.fillText(testo,element.x,element.y-12);
+      }
+    });
+
+    ctx.restore();
+  }
+};
+
+Chart.register(barPercentLabels);
+
+
+
+function bar(id,labels,values,fn,horizontal=true){
   destroy(id);
 
-  const totale=values.reduce((sum,v)=>sum+(Number(v)||0),0);
+  const totale=values.reduce((s,v)=>s+(Number(v)||0),0);
+  const massimo=Math.max(...values.map(v=>Number(v)||0),1);
 
   charts[id]=new Chart($(id),{
     type:"bar",
@@ -138,9 +184,7 @@ function bar(id,labels,values,fn,horizontal=true,percentages=null){
           callbacks:{
             label:(context)=>{
               const valore=Number(context.raw)||0;
-              const percentuale=percentages
-                ? percentages[context.dataIndex]
-                : totale>0?(valore/totale*100):0;
+              const percentuale=totale>0?valore/totale*100:0;
 
               return " "+fmt(valore)+" ("+
                 percentuale.toLocaleString("it-IT",{
@@ -149,14 +193,17 @@ function bar(id,labels,values,fn,horizontal=true,percentages=null){
                 })+"%)";
             }
           }
-        },
-        datalabels:{
-          display:false
         }
       },
       scales:{
-        x:{beginAtZero:true},
-        y:{beginAtZero:true}
+        x:{
+          beginAtZero:true,
+          suggestedMax:horizontal?massimo*1.35:undefined
+        },
+        y:{
+          beginAtZero:true,
+          suggestedMax:horizontal?undefined:massimo*1.35
+        }
       },
       onClick:(e,items)=>{
         if(items.length)fn(items[0].index);
@@ -164,6 +211,7 @@ function bar(id,labels,values,fn,horizontal=true,percentages=null){
     }
   });
 }
+
 
 
 function render(d){
